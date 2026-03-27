@@ -1,0 +1,40 @@
+# Binary for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go build command
+bin/
+cheap_sentinel
+main
+
+# Playwright Drivers & Browsers
+# Não queremos subir 200MB de navegadores para o Git
+.cache/
+ms-playwright/
+browser/
+
+# Local Environment / Secrets
+# Nunca suba suas chaves do Telegram ou Email
+.env
+secrets.json
+
+# IDEs (VS Code / JetBrains)
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Project specific
+# O print de teste que geramos não precisa ir para o histórico
+prova_de_vida.png
+
+# --- DATA EXCEPTION ---
+# Queremos que a pasta data e o CSV subam, pois são o banco de dados
+!data/
+!data/*.csv
