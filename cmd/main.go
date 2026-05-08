@@ -3,56 +3,90 @@ package main
 import (
 	"fmt"
 	"log"
+	"strconv"
+	"strings"
 	"time"
+
+	"cheap_sentinel/internal" // Certifica-te que este caminho bate com o teu go.mod
 
 	"github.com/playwright-community/playwright-go"
 )
 
 func main() {
-	// 1. Inicia o driver do Playwright
 	pw, err := playwright.Run()
 	if err != nil {
-		log.Fatalf("Não foi possível iniciar o Playwright: %v", err)
+		log.Fatalf("❌ Erro Playwright: %v", err)
 	}
 
-	// 2. Abre o navegador (Chromium)
-	// Headless: false permite que você VEJA o navegador abrindo. 
-	// Depois que o bot estiver pronto, mudamos para true.
 	browser, err := pw.Chromium.Launch(playwright.BrowserTypeLaunchOptions{
 		Headless: playwright.Bool(false),
 	})
 	if err != nil {
-		log.Fatalf("Não foi possível abrir o navegador: %v", err)
+		log.Fatalf("❌ Erro Browser: %v", err)
 	}
-	defer browser.Close() // Garante que o navegador feche ao terminar
+	defer browser.Close()
 
-	// 3. Abre uma nova aba (página)
 	page, err := browser.NewPage()
 	if err != nil {
-		log.Fatalf("Erro ao criar nova página: %v", err)
+		log.Fatalf("❌ Erro Page: %v", err)
 	}
 
-	// 4. Navega para um produto do AliExpress (exemplo de uma B550)
 	fmt.Println("🛰️ Sentinel acessando AliExpress...")
-	url := "https://www.aliexpress.com/item/1005006063640245.html" 
-	
-	if _, err = page.Goto(url); err != nil {
-		log.Fatalf("Erro ao acessar a URL: %v", err)
+	url := "https://pt.aliexpress.com/item/1005006357879509.html"
+	if _, err := page.Goto(url); err != nil {
+		log.Fatalf("❌ Erro URL: %v", err)
 	}
 
-	// 5. Espera um pouco para o JavaScript carregar (o Ali é pesado)
 	time.Sleep(5 * time.Second)
-
-	// 6. Captura o título do produto para testar
 	title, _ := page.Title()
-	fmt.Printf("✅ Sucesso! Produto encontrado: %s\n", title)
-
-	// 7. Tira um print de prova (vai salvar na raiz do projeto)
-	if _, err = page.Screenshot(playwright.PageScreenshotOptions{
-		Path: playwright.String("prova_de_vida.png"),
-	}); err != nil {
-		log.Fatalf("Erro ao tirar screenshot: %v", err)
+	words := strings.Fields(title)
+	if len(words) > 5 {
+		title = strings.Join(words[:5], " ") + "..."
 	}
 
-	fmt.Println("📸 Screenshot 'prova_de_vida.png' gerado com sucesso.")
+	priceLocator := page.Locator("span[class*='price-default--current']")
+	if err := priceLocator.WaitFor(); err != nil {
+		page.Screenshot(playwright.PageScreenshotOptions{Path: playwright.String("erro_preco.png")})
+		return
+	}
+
+	rawPrice, _ := priceLocator.InnerText()
+	cleanPrice := strings.NewReplacer("R$", "", " ", "", ".", "", ",", ".").Replace(rawPrice)
+	priceNumeric, err := strconv.ParseFloat(strings.TrimSpace(cleanPrice), 64)
+
+	if err != nil {
+		log.Printf("⚠️ Erro na conversão: %v", err)
+	} else {
+		fmt.Printf("🔢 Valor capturado: %.2f\n", priceNumeric)
+		csvPath := "data/prices.csv"
+
+		// --- ADAPTAÇÃO: LÓGICA INVERTIDA ---
+
+		// 1. Calcula estatísticas do passado ANTES de guardar o novo preço
+		avgPrice, minPrice, err := internal.CalculateStats(csvPath)
+
+		score := 0.0
+		if err == nil && avgPrice > 0 {
+			// Só calcula se houver diferença entre média e mínima para evitar div/0
+			if (avgPrice - minPrice) > 0.01 {
+				score = ((avgPrice - priceNumeric) / (avgPrice - minPrice)) * 100
+			} else if priceNumeric < avgPrice {
+				// Caso simplificado: se o preço baixou mas não temos range histórico
+				score = 50.0
+			}
+		}
+
+		fmt.Printf("📊 Opportunity Score: %.2f\n", score)
+
+		// 2. Agora sim, guarda a nova entrada com o Score calculado
+		err = internal.SaveEntry(csvPath, title, priceNumeric, score)
+		if err != nil {
+			log.Printf("❌ Erro ao guardar: %v", err)
+		} else {
+			fmt.Println("💾 Dados persistidos com sucesso!")
+		}
+	}
+
+	page.Screenshot(playwright.PageScreenshotOptions{Path: playwright.String("prova_de_vida.png")})
+	pw.Stop()
 }
